@@ -649,6 +649,10 @@ this release, the previous one, and the commits behind them. It does not
 establish that the binary matches the source, and it is not a substitute for
 building it yourself.
 
+The other side of this — dispatching the build, what its expected failures look
+like, and signing the checksums locally — is in
+[Publishing a Shrike release](RELEASING.md).
+
 **Building it yourself.** You do not compile anything by hand; Gradle does it:
 
 ```bash
