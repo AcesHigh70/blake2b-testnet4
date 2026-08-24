@@ -717,6 +717,144 @@ the network rejects as an undefined hash type. Gate on a compiled-in activation
 height as well as the tip, and cross-check that height against the connected
 node so a stale build declines rather than guesses.
 
+### Signing against a node
+
+Everything above about signing is design reasoning. This is the first end-to-end
+check of it: drongo produced the signatures, a node implementing the rule
+validated them.
+
+**The build is not an RC.** This is Bitcoin Knots built from kwsantiago's
+`hf-sighash-opt-in` branch at commit `453b5f9fb0`, not a tagged release:
+
+```bash
+cmake -B build-sighash -DCMAKE_BUILD_TYPE=RelWithDebInfo -DBUILD_GUI=OFF \
+  -DBUILD_TESTS=ON -DRDTS_CONSENT=IMPLICIT
+cmake --build build-sighash -j$(nproc)
+```
+
+Note `-DRDTS_CONSENT`. Configure on this branch fails without it, so the
+instruction to drop it under [Which build](#which-build) does not carry over.
+
+**You cannot identify this build from `-version`.** It reports `Bitcoin Core
+daemon version v29.4.0` with no Knots tag. The `subversion` check under
+[Start and verify](#start-and-verify) — established against rc2 in earlier work,
+not by this run — therefore has nothing to match on this branch. Track the
+commit yourself.
+
+Regtest, with the fork two blocks in:
+
+```bash
+bitcoind -regtest -datadir=$HOME/testnet4/regtest-sighash \
+    -testactivationheight=blake2b@2 -blake2b_headline=interop \
+    -fallbackfee=0.0002 -daemon
+
+bitcoin-cli -regtest -datadir=$HOME/testnet4/regtest-sighash -generate 101
+```
+
+Blocks past the boundary carry 164-byte v2 headers, which is worth confirming
+before you conclude anything from what follows:
+
+```bash
+bitcoin-cli ... getblockheader <hash> false | wc -c    # 329
+```
+
+That's 328 hex characters plus the newline.
+
+**The signer is `UnifiedSignHarness`** in drongo
+(`src/test/java/.../psbt/UnifiedSignHarness.java`) — a `main()` driven
+externally, not a JUnit test, so it takes the key from `UNIFIED_HARNESS_KEY` in
+the environment. Building its classpath has one trap:
+
+```bash
+CP="build/classes/java/main:build/classes/java/test:build/resources/main:$(./gradlew -q printTestClasspath)"
+```
+
+`printTestClasspath` returns dependency jars only — drongo's own classes are not
+on it, which is what makes the harness unresolvable without the prepended
+directories. That is the line that worked; whether every entry in it is required
+was not tested.
+
+The transaction is one P2WPKH input of 100000000 sat paying a P2PKH output of
+99990000 sat. Each candidate went to `testmempoolaccept`.
+
+**Three runs, all as required.** Two things vary independently: the hash-type
+byte **stamped** on the signature, and the digest the signature was actually
+**computed over**.
+
+| Stamp | Digest | `testmempoolaccept`                                   |
+| ----- | ------ | ----------------------------------------------------- |
+| `21`  | `21`   | `allowed: true`                                       |
+| `21`  | `01`   | `allowed: false` — `mempool-script-verify-flag-failed` |
+| `01`  | `01`   | `allowed: true`                                       |
+
+The rejection reads *"Signature must be zero for failed CHECK(MULTI)SIG
+operation"* — NULLFAIL, which is what a wrong digest looks like at this layer
+rather than a distinct error.
+
+All three share a txid and differ in wtxid. That is expected, since the
+signature lives in the witness, and it confirms the runs differ in nothing but
+the signature. Runs 2 and 3 carry byte-identical signatures apart from the
+trailing hash-type byte, which confirms the harness's restamp path alters the
+stamp and nothing else.
+
+**What this establishes.**
+
+- drongo and the node compute the **identical unified digest** for a P2WPKH
+  input. Run 1 is agreement on the new message.
+- The node **distinguishes the two digests** rather than ignoring the opt-in
+  bit. That is run 2, and it is the run that matters most.
+- **Legacy signatures remain valid past activation.** Run 3 is agreement on the
+  old message on a chain where the fork is already live.
+
+Be clear about why run 2 is load-bearing: it is the failing control that keeps
+runs 1 and 3 from being vacuous. A node that ignored the opt-in bit entirely —
+computing the legacy digest whatever the stamp said — would also pass runs 1 and
+3. Only a run that is *required to fail* separates a node that implements the
+rule from one that doesn't look at it.
+
+**Scope.** These are the limits of the run, not a list of things that went
+wrong:
+
+- One input, P2WPKH only, `SIGHASH_ALL` only.
+- Regtest, activation at height 2.
+
+Untested: taproot, multi-input transactions, `NONE`/`SINGLE`/`ANYONECANPAY`, and
+the both-directions boundary behaviour described at `doc/unified-sighash.md`
+lines 94–103 — a signature that opts in is valid before activation and not
+after, and one made under the fork's rules is not valid before it, so a mempool
+entry can be invalidated by the boundary from either side.
+
+**Incidental findings.** Each is separately useful and none is documented
+anywhere obvious.
+
+**`-blake2b_headline` is mandatory**, with no default, and the node refuses to
+start without it. The underscore is load-bearing: `-blake2bheadline` is
+rejected. Its help text still calls it a "proof-of-time news headline" although
+this branch gates on a buried height.
+
+**One `sendtoaddress` produced an opt-in signature unprompted.** The funding
+transaction it returned carried a trailing `21` on its scriptSig signature,
+unprompted. Worth knowing before you read a stamp as evidence that something on
+your side put it there.
+
+**`sign.cpp:110` collapses `DEFAULT` into `UNIFIED_ALL`**, matching drongo's
+`SigHash.withUnified()` as used in
+[AcesHigh70/sparrow#11](https://github.com/AcesHigh70/sparrow/pull/11). Node and
+wallet agree on that treatment, which is what a PSBT signed by one and validated
+by the other depends on.
+
+**Activation state is a bare `hardfork` object in `getdeploymentinfo`**
+(`{height, active}`), at the top level and not under `deployments` alongside
+`segwit` and `bip34`. Anything reading activation state over RPC has to look
+there.
+
+**`versionHex` cannot tell a v1 header from a v2 one.** `getblockheader` strips
+the v2 flag out of `nVersion` because the serializer moves it into
+`m_header_v2`, so `versionHex` reads `20000000` on a v2 block while
+`getblocktemplate` reports the raw `0xA0000000`. This is the same stripping that
+makes the DATUM dashboard read `20000000` and that broke PoW hashing in drongo.
+Check the serialized length instead.
+
 ---
 
 ## References
