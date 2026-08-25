@@ -607,6 +607,10 @@ A Sparrow fork carrying that work, for testing this fork:
 coins.** It is a fork build of a wallet, tracking an unmerged consensus change,
 and it has not been audited by anyone.
 
+> **DO NOT USE THIS ON MAINNET OR THE FORKED MAINNET CHAIN.**
+>
+> **IF YOU DO, YOU HAVE NO REPLAY PROTECTION.** No build carries a mainnet activation height, so past activation a wallet declines to opt in and signs the legacy way. The same happens on any chain if even one keystore is hardware-held, as described below. Those signatures are valid on both the forked chain and the original one — which is exactly what `SIGHASH_UNIFIED` exists to prevent.
+
 **No binaries are published.** The fork is unmaintained and its releases have
 been withdrawn. Build from source.
 
