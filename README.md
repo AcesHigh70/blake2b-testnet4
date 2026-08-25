@@ -603,55 +603,12 @@ past activation against a live node and tracks the tip.
 A Sparrow fork carrying that work, for testing this fork:
 
 - Source: <https://github.com/AcesHigh70/sparrow>
-- Releases: <https://github.com/AcesHigh70/sparrow/releases>
-
-Each release is tagged with the Knots RC it was built against — the tag
-`v2.5.4-knots20260508rc2.1` pairs with `v29.4.1.knots20260508rc2` and its
-activation height of 149537. A build carrying a different height will decline to
-opt in rather than sign under the wrong schedule, so pair them deliberately.
-
-Read the following before running it.
-
 **Testnet4 only. Do not point this at mainnet or at any wallet holding real
 coins.** It is a fork build of a wallet, tracking an unmerged consensus change,
 and it has not been audited by anyone.
 
-**The binaries are unsigned in the code-signing sense.** No Authenticode on
-Windows, no notarization on macOS. SmartScreen will warn. That is expected for a
-fork build, not a sign that something is wrong — but it also means the operating
-system gives you no assurance about what you're running. GitHub Actions built
-these; nobody, including whoever published the release, can verify the binary
-corresponds to the source any better than you can. **Building from source
-yourself is the stronger option and is not difficult** — see below.
-
-**No macOS build.** The codesign step needs Apple Developer credentials that only
-exist in the upstream Sparrow repository.
-
-### Verifying a release
-
-`SHA256SUMS` is signed with the same key that signs the release tags and commits,
-so GitHub shows those as Verified — a second place to check the fingerprint
-agrees:
-
-```
-C9E21BFB DFC040AB 9BE85AFB 2053BF48 10B0A6FB
-```
-
-```bash
-gpg --keyserver hkps://keys.openpgp.org \
-    --recv-keys C9E21BFBDFC040AB9BE85AFB2053BF4810B0A6FB
-gpg --verify SHA256SUMS.asc SHA256SUMS
-sha256sum -c SHA256SUMS --ignore-missing
-```
-
-Be clear about what this buys you: it establishes that the same identity signed
-this release, the previous one, and the commits behind them. It does not
-establish that the binary matches the source, and it is not a substitute for
-building it yourself.
-
-The other side of this — dispatching the build, what its expected failures look
-like, and signing the checksums locally — is in
-[Publishing a Shrike release](RELEASING.md).
+**No binaries are published.** The fork is unmaintained and its releases have
+been withdrawn. Build from source.
 
 **Building it yourself.** You do not compile anything by hand; Gradle does it:
 
